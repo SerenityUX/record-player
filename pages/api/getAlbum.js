@@ -22,30 +22,59 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'No image URL provided' });
       }
 
-      // Check for Claude API key
-      const claudeKey = process.env.claudeKey;
-      if (!claudeKey) {
-        return res.status(500).json({ error: 'Claude API key is not configured' });
+      // Check for Google API key
+      const googleKey = process.env.googleKey;
+      if (!googleKey) {
+        return res.status(500).json({ error: 'Google API key is not configured' });
       }
-      console.log('Claude API key found:', claudeKey ? 'Yes' : 'No');
+      console.log('Google API key found:', googleKey ? 'Yes' : 'No');
 
-      // Prepare the request body with image URL
+      // Fetch the image and convert to base64 for Gemini
+      let imageBase64 = null;
+      let mimeType = 'image/jpeg';
+      
+      try {
+        console.log('Fetching image from URL:', imageUrl);
+        const imageResponse = await fetch(imageUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch image: ${imageResponse.status}`);
+        }
+        
+        const imageBuffer = await imageResponse.arrayBuffer();
+        imageBase64 = Buffer.from(imageBuffer).toString('base64');
+        
+        // Determine mime type
+        const contentType = imageResponse.headers.get('content-type');
+        if (contentType && contentType.startsWith('image/')) {
+          mimeType = contentType;
+        } else if (imageUrl.match(/\.(png|jpg|jpeg|gif|webp)$/i)) {
+          const ext = imageUrl.match(/\.(\w+)$/i)?.[1]?.toLowerCase();
+          if (ext === 'png') mimeType = 'image/png';
+          else if (ext === 'gif') mimeType = 'image/gif';
+          else if (ext === 'webp') mimeType = 'image/webp';
+          else mimeType = 'image/jpeg';
+        }
+        console.log('Image converted to base64, mimeType:', mimeType);
+      } catch (fetchError) {
+        console.error('Error fetching image:', fetchError);
+        return res.status(500).json({ 
+          error: 'Failed to fetch image from URL',
+          details: fetchError.message
+        });
+      }
+
+      // Prepare the request body for Gemini API
       const requestBody = {
-        model: 'claude-sonnet-4-5-20250929',
-        max_tokens: 100,
-        messages: [
+        contents: [
           {
-            role: 'user',
-            content: [
+            parts: [
               {
-                type: 'image',
-                source: {
-                  type: 'url',
-                  url: imageUrl,
+                inlineData: {
+                  mimeType: mimeType,
+                  data: imageBase64,
                 },
               },
               {
-                type: 'text',
                 text: 'You are given an album cover. From this album cover alone, you need to identify the name of the album, the artist, and the first song on the album. Reply with nothing but the format: "{Song Name}, {Album}, by {Artist}". If you cannot identify all three pieces of information from the cover, reply with exactly: NULL',
               },
             ],
@@ -53,41 +82,39 @@ export default async function handler(req, res) {
         ],
       };
 
-      console.log('=== Sending to Claude API ===');
-      console.log('Using image source type: url');
-      console.log('Model:', requestBody.model);
+      console.log('=== Sending to Gemini API ===');
+      console.log('Model: gemini-2.5-flash');
       console.log('Image URL:', imageUrl);
-      console.log('Image source:', JSON.stringify({ type: 'url', url: imageUrl }, null, 2));
-      console.log('Prompt text:', requestBody.messages[0].content[1].text);
+      console.log('Mime type:', mimeType);
+      console.log('Prompt text:', requestBody.contents[0].parts[1].text);
 
-      // Call Claude API to identify the album
-      const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      // Call Gemini API to identify the album
+      const geminiResponse = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
         method: 'POST',
         headers: {
-          'x-api-key': claudeKey,
-          'anthropic-version': '2023-06-01',
+          'x-goog-api-key': googleKey,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(requestBody),
       });
 
-      console.log('Claude API response status:', claudeResponse.status, claudeResponse.statusText);
+      console.log('Gemini API response status:', geminiResponse.status, geminiResponse.statusText);
 
-      if (!claudeResponse.ok) {
-        const errorText = await claudeResponse.text();
-        console.error('Claude API error:', errorText);
-        return res.status(claudeResponse.status).json({ 
-          error: 'Failed to get album name from Claude API',
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        console.error('Gemini API error:', errorText);
+        return res.status(geminiResponse.status).json({ 
+          error: 'Failed to get album name from Gemini API',
           details: errorText.substring(0, 500)
         });
       }
 
-      const claudeData = await claudeResponse.json();
-      console.log('=== Claude API Response ===');
-      console.log('Full response:', JSON.stringify(claudeData, null, 2));
+      const geminiData = await geminiResponse.json();
+      console.log('=== Gemini API Response ===');
+      console.log('Full response:', JSON.stringify(geminiData, null, 2));
       
-      // Extract the response from Claude
-      let response = claudeData.content?.[0]?.text?.trim() || null;
+      // Extract the response from Gemini
+      let response = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
       console.log('Extracted response (raw):', response);
       
       // If the response is "NULL" (case-insensitive), set it to null
