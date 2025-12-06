@@ -130,14 +130,15 @@ export default function Home() {
 
         const apiData = await apiResponse.json();
         
-        // Check if album was found
+        // Check if album/song was found
         if (!apiData.albumName || apiData.albumName === null) {
           throw new Error('Could not identify album in the image');
         }
         
         // Check if YouTube video was found
         if (!apiData.youtubeUrl) {
-          throw new Error(`Couldn't find song "${apiData.albumName}" on YouTube`);
+          const searchTerm = apiData.songName || apiData.albumName;
+          throw new Error(`Couldn't find song "${searchTerm}" on YouTube`);
         }
         
         setResult(apiData);

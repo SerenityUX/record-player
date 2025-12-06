@@ -46,7 +46,7 @@ export default async function handler(req, res) {
               },
               {
                 type: 'text',
-                text: 'What is the album name in this image? If you can see an album name and creator/artist, reply with nothing but the format: "Album Name by Creator". If you can only see the album name without creator, reply with just the album name. If there is no album name visible in the image, reply with exactly: NULL',
+                text: 'You are given an album cover. From this album cover alone, you need to identify the name of the album, the artist, and the first song on the album. Reply with nothing but the format: "{Song Name}, {Album}, by {Artist}". If you cannot identify all three pieces of information from the cover, reply with exactly: NULL',
               },
             ],
           },
@@ -86,25 +86,46 @@ export default async function handler(req, res) {
       console.log('=== Claude API Response ===');
       console.log('Full response:', JSON.stringify(claudeData, null, 2));
       
-      // Extract the album name from Claude's response
-      let albumName = claudeData.content?.[0]?.text?.trim() || null;
-      console.log('Extracted albumName (raw):', albumName);
+      // Extract the response from Claude
+      let response = claudeData.content?.[0]?.text?.trim() || null;
+      console.log('Extracted response (raw):', response);
       
       // If the response is "NULL" (case-insensitive), set it to null
-      if (albumName && albumName.toUpperCase() === 'NULL') {
-        albumName = null;
+      if (response && response.toUpperCase() === 'NULL') {
+        response = null;
         console.log('Converted "NULL" to null');
       }
 
-      console.log('Final albumName:', albumName);
+      // Parse the response format: "{Song Name}, {Album}, by {Artist}"
+      let songName = null;
+      let albumName = null;
+      let artistName = null;
       
-      // If we have an album name, search YouTube
+      if (response) {
+        // Try to parse the format: "Song Name, Album, by Artist"
+        const match = response.match(/^"?(.+?),\s*(.+?),\s*by\s*(.+?)"?$/);
+        if (match) {
+          songName = match[1].trim();
+          albumName = match[2].trim();
+          artistName = match[3].trim();
+          console.log('Parsed - Song:', songName, 'Album:', albumName, 'Artist:', artistName);
+        } else {
+          // If format doesn't match, use the whole response as album name (fallback)
+          albumName = response;
+          console.log('Could not parse format, using full response as album name');
+        }
+      }
+
+      console.log('Final response:', response);
+      
+      // If we have a song name, search YouTube (prefer song name, fallback to album name)
       let youtubeUrl = null;
-      if (albumName) {
+      const searchQuery = songName || albumName;
+      if (searchQuery) {
         try {
-          const searchQuery = `${albumName} album`;
-          console.log('Searching YouTube for:', searchQuery);
-          const searchResults = await ytsr(searchQuery, { limit: 1 });
+          const youtubeSearchQuery = `${searchQuery} album`;
+          console.log('Searching YouTube for:', youtubeSearchQuery);
+          const searchResults = await ytsr(youtubeSearchQuery, { limit: 1 });
           
           if (searchResults.items && searchResults.items.length > 0) {
             const firstVideo = searchResults.items.find(item => item.type === 'video');
@@ -140,8 +161,13 @@ export default async function handler(req, res) {
 
       console.log('=== End getAlbum ===');
 
-      // Return the album name and YouTube URL (or null if not found)
-      res.status(200).json({ albumName, youtubeUrl });
+      // Return the song name, album name, artist, and YouTube URL (or null if not found)
+      res.status(200).json({ 
+        songName,
+        albumName,
+        artistName,
+        youtubeUrl 
+      });
     } catch (error) {
       console.error('Error in getAlbum:', error);
       res.status(500).json({ error: 'Internal server error', message: error.message });
