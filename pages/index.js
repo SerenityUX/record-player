@@ -103,13 +103,14 @@ export default function Home() {
         });
 
         if (!uploadResponse.ok) {
-          throw new Error('Failed to upload image');
+          const errorData = await uploadResponse.json().catch(() => ({}));
+          throw new Error(`Failed to upload image: ${errorData.error || 'Unknown error'}`);
         }
 
         const uploadData = await uploadResponse.json();
         
         if (!uploadData.imageUrl) {
-          throw new Error('No image URL returned from upload');
+          throw new Error('Failed to upload image: No image URL returned');
         }
 
         // Step 2: Get album and search YouTube
@@ -123,15 +124,35 @@ export default function Home() {
         });
 
         if (!apiResponse.ok) {
-          throw new Error('Failed to get album name');
+          const errorData = await apiResponse.json().catch(() => ({}));
+          throw new Error(`Failed to identify album: ${errorData.error || 'Unknown error'}`);
         }
 
         const apiData = await apiResponse.json();
+        
+        // Check if album was found
+        if (!apiData.albumName || apiData.albumName === null) {
+          throw new Error('Could not identify album in the image');
+        }
+        
+        // Check if YouTube video was found
+        if (!apiData.youtubeUrl) {
+          throw new Error(`Couldn't find song "${apiData.albumName}" on YouTube`);
+        }
+        
         setResult(apiData);
         setStatus(null);
       } catch (err) {
         setError(err.message);
         setStatus(null);
+        
+        // Auto-clear after 3 seconds
+        setTimeout(() => {
+          setFrozenImage(null);
+          setResult(null);
+          setError(null);
+          setStatus(null);
+        }, 3000);
       }
     }
   };
