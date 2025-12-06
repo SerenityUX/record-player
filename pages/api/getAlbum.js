@@ -102,8 +102,9 @@ export default async function handler(req, res) {
       let youtubeUrl = null;
       if (albumName) {
         try {
-          console.log('Searching YouTube for:', albumName);
-          const searchResults = await ytsr(albumName, { limit: 1 });
+          const searchQuery = `${albumName} album`;
+          console.log('Searching YouTube for:', searchQuery);
+          const searchResults = await ytsr(searchQuery, { limit: 1 });
           
           if (searchResults.items && searchResults.items.length > 0) {
             const firstVideo = searchResults.items.find(item => item.type === 'video');
